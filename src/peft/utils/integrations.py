@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from contextlib import contextmanager
+from typing import Literal
 
 import packaging.version
 import torch
@@ -48,6 +51,10 @@ def dequantize_module_weight(module: torch.nn.Module) -> torch.nn.Parameter:
     """
     if hasattr(module, "W_q"):  # For handling HQQ quantized weight
         weight = module.dequantize()
+        return weight
+    elif type(module.weight).__module__.startswith("torchao."):
+        # check for torchao without requiring any torchao imports
+        weight = module.weight.dequantize()
         return weight
 
     weight = module.weight
@@ -94,13 +101,72 @@ def dequantize_bnb_weight(weight: torch.nn.Parameter, state=None):
     if state.SCB is None:
         state.SCB = weight.SCB
 
-    im = torch.eye(weight.data.shape[-1]).contiguous().half().to(weight.device)
-    im, imt, SCim, SCimt, coo_tensorim = bnb.functional.double_quant(im)
-    im, Sim = bnb.functional.transform(im, "col32")
-    if state.CxB is None:
-        state.CxB, state.SB = bnb.functional.transform(weight.data, to_order=state.formatB)
-    out32, Sout32 = bnb.functional.igemmlt(im, state.CxB, Sim, state.SB)
-    dequantized = bnb.functional.mm_dequant(out32, Sout32, SCim, state.SCB, bias=None).t()
+    if hasattr(bnb.functional, "int8_vectorwise_dequant"):
+        # Use bitsandbytes API if available (requires v0.45.0+)
+        dequantized = bnb.functional.int8_vectorwise_dequant(weight.data, state.SCB)
+    else:
+        # Multiply by (scale/127) to dequantize.
+        dequantized = weight.data * state.SCB.view(-1, 1) * 7.874015718698502e-3
+
     if is_cpu:
         dequantized = dequantized.to(device)
     return dequantized
+
+
+def get_bnb_param_type(param: torch.nn.Parameter) -> Literal[False, "4bit", "8bit"]:
+    """Returns '4bit' or '8bit' if bitsandbytes parameter, else False"""
+    if param.__class__.__name__ == "Params4bit":
+        return "4bit"
+    if param.__class__.__name__ == "Int8Params":
+        return "8bit"
+    return False
+
+
+# adapted from:
+# https://github.com/huggingface/transformers/blob/eab6c491d439e83d5e31c660df6f7e36592eb0a2/src/transformers/generation/utils.py#L1617-L1643
+def get_layer_device_map(model):
+    """
+    Derive the device map for the layers of the model.
+    """
+    main_device = [d for d in model.hf_device_map.values() if d not in ["cpu", "disk"]][0]
+
+    execution_device_map = {
+        name: main_device if device in ["cpu", "disk"] else device for name, device in model.hf_device_map.items()
+    }
+
+    if execution_device_map is None:
+        return None
+
+    if len(execution_device_map) == 1 and "" in execution_device_map:
+        return {idx: execution_device_map[""] for idx in range(model.config.num_hidden_layers)}
+
+    layer_device_map = {}
+    for layer in execution_device_map:
+        for idx in range(model.config.num_hidden_layers):
+            if f".{idx}." in f"{layer}.":
+                layer_device_map[idx] = execution_device_map[layer]
+                break
+    for idx in range(model.config.num_hidden_layers):
+        if idx not in layer_device_map:
+            raise RuntimeError(f"layer {idx} has not been mapped to a device.")
+    return layer_device_map
+
+
+# adapted from:
+# https://github.com/huggingface/transformers/blob/eab6c491d439e83d5e31c660df6f7e36592eb0a2/src/transformers/cache_utils.py#L1159-L1179
+def map_cache_to_layer_device_map(model, cache) -> None:
+    """
+    Ensure that the key and value cache of the model are on the same device as their corresponding layers.
+    """
+    if not (isinstance(cache, transformers.Cache) and hasattr(model, "hf_device_map")):
+        return
+
+    if isinstance(cache, transformers.EncoderDecoderCache):
+        map_cache_to_layer_device_map(model, cache.self_attention_cache)
+        return
+
+    layer_device_map = get_layer_device_map(model)
+    for idx in range(model.config.num_hidden_layers):
+        layer_device = layer_device_map[idx]
+        cache.key_cache[idx] = cache.key_cache[idx].to(layer_device)
+        cache.value_cache[idx] = cache.value_cache[idx].to(layer_device)

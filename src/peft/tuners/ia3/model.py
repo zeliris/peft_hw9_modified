@@ -33,7 +33,7 @@ from peft.utils import (
     _get_submodules,
 )
 
-from .layer import Conv2d, IA3Layer, Linear
+from .layer import Conv2d, Conv3d, IA3Layer, Linear
 
 
 class IA3Model(BaseTuner):
@@ -45,6 +45,8 @@ class IA3Model(BaseTuner):
         model ([`~transformers.PreTrainedModel`]): The model to be adapted.
         config ([`IA3Config`]): The configuration of the (IA)^3 model.
         adapter_name (`str`): The name of the adapter, defaults to `"default"`.
+        low_cpu_mem_usage (`bool`, `optional`, defaults to `False`):
+            Create empty adapter weights on meta device. Useful to speed up the loading process.
 
     Returns:
         `torch.nn.Module`: The (IA)^3 model.
@@ -73,8 +75,8 @@ class IA3Model(BaseTuner):
 
     prefix: str = "ia3_"
 
-    def __init__(self, model, config, adapter_name):
-        super().__init__(model, config, adapter_name)
+    def __init__(self, model, config, adapter_name, low_cpu_mem_usage: bool = False):
+        super().__init__(model, config, adapter_name, low_cpu_mem_usage=low_cpu_mem_usage)
 
     @staticmethod
     def _create_new_module(ia3_config, adapter_name, target, **kwargs):
@@ -101,7 +103,6 @@ class IA3Model(BaseTuner):
             eightbit_kwargs.update(
                 {
                     "has_fp16_weights": target_base_layer.state.has_fp16_weights,
-                    "memory_efficient_backward": target_base_layer.state.memory_efficient_backward,
                     "threshold": target_base_layer.state.threshold,
                     "index": target_base_layer.index,
                 }
@@ -119,6 +120,8 @@ class IA3Model(BaseTuner):
             new_module = Linear4bit(target, adapter_name, is_feedforward=is_feedforward, **fourbit_kwargs)
         elif isinstance(target, torch.nn.Conv2d):
             new_module = Conv2d(target, adapter_name, is_feedforward=is_feedforward, **kwargs)
+        elif isinstance(target, torch.nn.Conv3d):
+            new_module = Conv3d(target, adapter_name, is_feedforward=is_feedforward, **kwargs)
         elif isinstance(target_base_layer, torch.nn.Linear):
             if kwargs["fan_in_fan_out"]:
                 warnings.warn(
@@ -217,16 +220,20 @@ class IA3Model(BaseTuner):
                 new_module.state = child.state
             new_module.to(child.weight.device)
 
+        meta = torch.device("meta")
         # dispatch to correct device
         for name, module in new_module.named_modules():
             if self.prefix in name:
-                module.to(child.weight.device)
+                if not any(p.device == meta for p in module.parameters()):
+                    module.to(child.weight.device)
 
     def __getattr__(self, name: str):
         """Forward missing attributes to the wrapped module."""
         try:
             return super().__getattr__(name)  # defer to nn.Module's logic
         except AttributeError:
+            if name == "model":  # see #1892: prevent infinite recursion if class is not initialized
+                raise
             return getattr(self.model, name)
 
     def get_peft_config_as_dict(self, inference: bool = False):

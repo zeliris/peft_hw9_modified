@@ -18,7 +18,15 @@
 # limitations under the License.
 
 from .adaption_prompt import AdaptionPromptConfig, AdaptionPromptModel
-from .lora import LoraConfig, LoraModel, LoftQConfig
+from .lora import (
+    LoraConfig,
+    LoraModel,
+    LoftQConfig,
+    EvaConfig,
+    LoraRuntimeConfig,
+    get_eva_state_dict,
+    initialize_lora_eva_weights,
+)
 from .loha import LoHaConfig, LoHaModel
 from .lokr import LoKrConfig, LoKrModel
 from .ia3 import IA3Config, IA3Model
@@ -33,3 +41,9 @@ from .mixed import MixedModel
 from .poly import PolyConfig, PolyModel
 from .ln_tuning import LNTuningConfig, LNTuningModel
 from .vera import VeraConfig, VeraModel
+from .fourierft import FourierFTConfig, FourierFTModel
+from .xlora import XLoraConfig, XLoraModel
+from .hra import HRAConfig, HRAModel
+from .vblora import VBLoRAConfig, VBLoRAModel
+from .cpt import CPTConfig, CPTEmbedding
+from .bone import BoneConfig, BoneModel

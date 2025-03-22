@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import warnings
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import torch
 
@@ -279,7 +279,6 @@ def sce_mask(
     mask = torch.zeros_like(var, dtype=mask_dtype)
     mask.view(-1)[indices] = 1
     return mask
-
 
 def dare_linear(task_tensors: List[torch.Tensor], weights: torch.Tensor, density: float) -> torch.Tensor:
     """
