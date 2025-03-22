@@ -44,7 +44,7 @@ from peft.utils import (
     get_peft_model_state_dict,
     get_quantization_config,
 )
-from peft.utils.merge_utils import dare_linear, dare_ties, magnitude_prune, task_arithmetic, ties
+from peft.utils.merge_utils import dare_linear, dare_ties, magnitude_prune, task_arithmetic, ties, sce
 
 from .aqlm import dispatch_aqlm
 from .awq import dispatch_awq
@@ -501,11 +501,11 @@ class LoraModel(BaseTuner):
         combination_type = "linear" if len(adapters) == 1 else combination_type
 
         adapters_ranks = [self.peft_config[adapter].r for adapter in adapters]
-        if combination_type in ("linear", "ties", "dare_ties", "dare_linear", "magnitude_prune"):
+        if combination_type in ("linear", "ties", "sce", "dare_ties", "dare_linear", "magnitude_prune"):
             # all adapters ranks should be same, new rank is just this value
             if len(set(adapters_ranks)) != 1:
                 raise ValueError(
-                    "All adapters must have the same r value when using combination_type linear, ties, dare_ties or "
+                    "All adapters must have the same r value when using combination_type linear, ties, sce, dare_ties or "
                     "dare_linear."
                 )
             new_rank = adapters_ranks[0]
@@ -567,7 +567,7 @@ class LoraModel(BaseTuner):
             adapter_name (`str`):
                 Name of the new adapter.
             combination_type (`str`):
-                The merging type can be one of [`svd`, `linear`, `cat`, `ties`, `ties_svd`, `dare_ties`, `dare_linear`,
+                The merging type can be one of [`svd`, `linear`, `cat`, `ties`, `sec`, `ties_svd`, `dare_ties`, `dare_linear`,
                 `dare_ties_svd`, `dare_linear_svd`, `magnitude_prune`, `magnitude_prune_svd`]. When using the `cat`
                 combination_type, the rank of the resulting adapter is equal to the sum of all adapters ranks (the
                 mixed adapter may be too big and result in OOM errors).
@@ -585,11 +585,11 @@ class LoraModel(BaseTuner):
                 documentation. Defaults to None.
             density (`float`, *optional*):
                 Value between 0 and 1. 0 means all values are pruned and 1 means no values are pruned. Should be used
-                with [`ties`, `ties_svd`, `dare_ties`, `dare_linear`, `dare_ties_svd`, `dare_linear_svd`,
+                with [`ties`, `sce`, `ties_svd`, `dare_ties`, `dare_linear`, `dare_ties_svd`, `dare_linear_svd`,
                 `magnintude_prune`, `magnitude_prune_svd`]
             majority_sign_method (`str`):
                 The method, should be one of ["total", "frequency"], to use to get the magnitude of the sign values.
-                Should be used with [`ties`, `ties_svd`, `dare_ties`, `dare_ties_svd`]
+                Should be used with [`ties`, `sce`, `ties_svd`, `dare_ties`, `dare_ties_svd`]
         """
 
         if adapter_name in list(self.peft_config.keys()):
@@ -668,7 +668,7 @@ class LoraModel(BaseTuner):
                         full_matrices=svd_full_matrices,
                         driver=svd_driver,
                     )
-                elif combination_type in ["linear", "ties", "dare_linear", "dare_ties", "magnitude_prune"]:
+                elif combination_type in ["linear", "ties", "sce", "dare_linear", "dare_ties", "magnitude_prune"]:
                     target_lora_A.data, target_lora_B.data = self._generalized_task_arithmetic_weighted_adapter(
                         combination_type, adapters, weights, target, density, majority_sign_method
                     )
@@ -774,6 +774,8 @@ class LoraModel(BaseTuner):
                 lora_deltas[i] = task_arithmetic(task_tensors, valid_weights)
             elif combination_type == "ties":
                 lora_deltas[i] = ties(task_tensors, valid_weights, density, majority_sign_method)
+            elif combination_type == "sce":
+                lora_deltas[i] = sce(task_tensors, density, majority_sign_method)
             elif combination_type == "dare_linear":
                 lora_deltas[i] = dare_linear(task_tensors, valid_weights, density)
             elif combination_type == "dare_ties":
