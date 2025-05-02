@@ -46,8 +46,8 @@ def magnitude_based_pruning(tensor: torch.Tensor, density: float) -> torch.Tenso
     Returns:
         `torch.Tensor`: The tensor with the pruned weights.
     """
-    mask = torch.zeros_like(tensor).reshape(-1)
-    k = int(density * tensor.numel())
+    mask = torch.zeros_like(tensor).reshape(-1) #reshape(-1)=flatten()
+    k = int(density * tensor.numel()) #numel : total number of element, regardless of it's shape
     top_k = torch.topk(tensor.abs().reshape(-1), k=k, largest=True)
     mask[top_k[1]] = 1
     return tensor * mask.reshape(tensor.shape)
@@ -217,19 +217,33 @@ def ties(
 
 #### Todo: Add new methods, reuse modules in other algorithms ####
 #### e.g. if you want to implement “sce” algorithm ####
-"""
+def global_prune(global_tensor: torch.Tensor, density, method) -> torch.Tensor:
+    pruned_global_tensor=prune(global_tensor, density, method=method)
+    return pruned_global_tensor
+
 def sce(task_tensors: List[torch.Tensor],
     density: float = 1.0,
     majority_sign_method: Literal["total", "frequency"] = "total",
 ) -> torch.Tensor:
     # derive task vectors
+    stacked_tensor=torch.stack(task_tensors)
+    global_pruned_task_tensors=global_prune(stacked_tensor, density, "magnitude")
+    global_pruned_task_tensors_unbind=list(torch.unbind(global_pruned_task_tensors, dim=0))
+
+    coeffs=[0 for i in global_pruned_task_tensors_unbind]
+    cnt=0
+    for i in global_pruned_task_tensors_unbind:
+        coeffs[cnt]=torch.sum(i**2)
     
+    majority_sign_mask = calculate_majority_sign_mask(global_pruned_task_tensors, method=majority_sign_method)
+    weight=torch.tensor(coeffs)
+    weight=reshape_weight_task_tensors(global_pruned_task_tensors, weight)
+    weighted_task_tensors=global_pruned_task_tensors*weight
+    mixed_task_tensors=disjoint_merge(weighted_task_tensors, majority_sign_mask)
+    return mixed_task_tensors
     # S: select top-k variance elements in matrices (among different task vectors) v.s. TIES (pruning individually)
     # C: sum of squares of elements to obtain merging coefficient for each target LLM
     # E: filter elements with minority directions
-
-    return 
-"""
 
 
 def dare_linear(task_tensors: List[torch.Tensor], weights: torch.Tensor, density: float) -> torch.Tensor:

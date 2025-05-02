@@ -43,7 +43,7 @@ from peft.utils import (
     get_quantization_config,
 )
 #### Todo: import function of new methods here #### 
-from peft.utils.merge_utils import dare_linear, dare_ties, magnitude_prune, task_arithmetic, ties
+from peft.utils.merge_utils import dare_linear, dare_ties, magnitude_prune, task_arithmetic, ties, sce
 from peft.utils.other import get_pattern_key
 
 from .aqlm import dispatch_aqlm
@@ -725,7 +725,7 @@ class LoraModel(BaseTuner):
                         driver=svd_driver,
                     )
                 #### Todo: remember to add func names of new methods here here ####
-                elif combination_type in ["linear", "ties", "dare_linear", "dare_ties", "magnitude_prune"]:
+                elif combination_type in ["linear", "ties", "dare_linear", "dare_ties", "magnitude_prune", "sce"]:
                     target_lora_A.data, target_lora_B.data = self._generalized_task_arithmetic_weighted_adapter(
                         combination_type, adapters, weights, target, density, majority_sign_method
                     )
@@ -838,6 +838,8 @@ class LoraModel(BaseTuner):
                 lora_deltas[i] = dare_ties(task_tensors, valid_weights, density, majority_sign_method)
             elif combination_type == "magnitude_prune":
                 lora_deltas[i] = magnitude_prune(task_tensors, valid_weights, density)
+            elif combination_type ==  "sce":
+                lora_deltas[i] = sce(task_tensors, density, majority_sign_method)
             else:
                 raise ValueError("Invalid combination type")
         lora_deltas = [delta.to(dtype) for delta in lora_deltas]
