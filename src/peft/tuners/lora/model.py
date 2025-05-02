@@ -557,7 +557,7 @@ class LoraModel(BaseTuner):
 
         adapters_ranks = [self.peft_config[adapter].r for adapter in adapters]
         #### Todo: remember to add func names of new methods here here ####
-        if combination_type in ("linear", "ties", "dare_ties", "dare_linear", "magnitude_prune"):
+        if combination_type in ("linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "sce"):
             # all adapters ranks should be same, new rank is just this value
             if len(set(adapters_ranks)) != 1:
                 raise ValueError(
