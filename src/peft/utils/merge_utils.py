@@ -288,7 +288,7 @@ def dare_ties(
         `torch.Tensor`: The merged tensor.
     """
     # sparsify
-    task_tensors = [prune(tensor, density, method="magnitude", rescale=True) for tensor in task_tensors]
+    task_tensors = [prune(tensor, density, method="random", rescale=True) for tensor in task_tensors]
     task_tensors = torch.stack(task_tensors, dim=0)
     # Elect Sign
     majority_sign_mask = calculate_majority_sign_mask(task_tensors, method=majority_sign_method)
