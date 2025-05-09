@@ -258,6 +258,8 @@ def sce(task_tensors: List[torch.Tensor],
     task_tensors=torch.stack(task_tensors)
     pruned_task_tensors=sce_mask(task_tensors, density)
     weight=sce_weight(task_tensors)
+    print(weight.dim())
+    print(pruned_task_tensors.dim())
     majority_sign_mask = calculate_majority_sign_mask(pruned_task_tensors, method=majority_sign_method)
     weighted_task_tensors=pruned_task_tensors*weight
     mixed_task_tensors=disjoint_merge(weighted_task_tensors, majority_sign_mask)
