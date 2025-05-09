@@ -255,6 +255,7 @@ def sce(task_tensors: List[torch.Tensor],
     majority_sign_method: Literal["total", "frequency"] = "total",
 ) -> torch.Tensor:
     # derive task vectors
+    task_tensors=torch.stack(task_tensors)
     pruned_task_tensors=sce_mask(task_tensors, density)
     weight=sce_weight(task_tensors)
     majority_sign_mask = calculate_majority_sign_mask(pruned_task_tensors, method=majority_sign_method)
