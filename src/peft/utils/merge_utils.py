@@ -221,11 +221,47 @@ def global_prune(global_tensor: torch.Tensor, density, method) -> torch.Tensor:
     pruned_global_tensor=prune(global_tensor, density, method=method)
     return pruned_global_tensor
 
+def sce_weight(task_tensors: torch.Tensor) -> torch.Tensor:
+    # Implementation of C step
+    # Compute squared magnitude (energy) per task
+    weights = torch.mean(task_tensors**2, dim=list(range(1, task_tensors.dim())))
+    # Sum all weights to normalize
+    weight_sum = torch.sum(weights).item()
+    # Handle edge case: if all task tensors are 0, fallback to uniform weights
+    if abs(weight_sum) < 1e-6:
+        return torch.ones_like(weights) / weights.shape[0]
+    # Normalize to form a probability distribution over tasks
+    return weights / weight_sum
+
+def sce_mask(task_tensors: torch.Tensor, density: float, mask_dtype: Optional[torch.dtype] = None):
+    # Implementation of S step (sce_mask)
+    if density <= 0: # If density is zero, mask out everything
+        return torch.zeros_like(task_tensors, dtype=mask_dtype)
+    if density >= 1: # If density is one, keep everything
+        return torch.ones_like(task_tensors, dtype=mask_dtype)
+    var = torch.var(task_tensors, dim=0, unbiased=False) # Compute variance over the task dimension (T) for each parameter
+    nonzero = torch.count_nonzero(var) # Count how many parameters have non-zero variance
+    k = int(nonzero * density) # Compute number of parameters to keep based on density
+    if k == 0:
+        return torch.zeros_like(task_tensors, dtype=mask_dtype)
+    _, indices = torch.topk(var.abs().view(-1), k=k, largest=True) # Select the indices of top-k variances
+    # Build binary mask with 1s in selected indices
+    mask = torch.zeros_like(var, dtype=mask_dtype)
+    mask.view(-1)[indices] = 1
+    return mask
+
 def sce(task_tensors: List[torch.Tensor],
     density: float = 1.0,
     majority_sign_method: Literal["total", "frequency"] = "total",
 ) -> torch.Tensor:
     # derive task vectors
+    pruned_task_tensors=sce_mask(task_tensors, density)
+    weight=sce_weight(task_tensors)
+    majority_sign_mask = calculate_majority_sign_mask(pruned_task_tensors, method=majority_sign_method)
+    weighted_task_tensors=pruned_task_tensors*weight
+    mixed_task_tensors=disjoint_merge(weighted_task_tensors, majority_sign_mask)
+    return mixed_task_tensors
+    '''
     stacked_tensor=torch.stack(task_tensors)
     global_pruned_task_tensors=global_prune(stacked_tensor, density, "magnitude")
     global_pruned_task_tensors_unbind=list(torch.unbind(global_pruned_task_tensors, dim=0))
@@ -241,6 +277,7 @@ def sce(task_tensors: List[torch.Tensor],
     weighted_task_tensors=global_pruned_task_tensors*weight
     mixed_task_tensors=disjoint_merge(weighted_task_tensors, majority_sign_mask)
     return mixed_task_tensors
+    '''
     # S: select top-k variance elements in matrices (among different task vectors) v.s. TIES (pruning individually)
     # C: sum of squares of elements to obtain merging coefficient for each target LLM
     # E: filter elements with minority directions
